@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "500529995449",
+    "project_id": "band-room-b6699",
+    "storage_bucket": "band-room-b6699.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:500529995449:android:28c02e4feff7a48fcdc568",
+        "android_client_info": {
+          "package_name": "com.example.band_room"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBiOq5-AyHrLEbDAgq9du01BNkg09FJwlM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
