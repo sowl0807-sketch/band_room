@@ -28,10 +28,11 @@ class _SignupPageState extends State<SignupPage> {
       // 作成したアカウントに「名前」を登録する
       await userCredential.user?.updateDisplayName(_nameController.text.trim());
 
-      // 招待コードの判定。空欄なら自分のUIDを新しいグループIDとして扱う
+      // 招待コードの判定。空欄なら「ランダムなグループ専用ID」を自動生成する
       String inviteCode = _inviteCodeController.text.trim();
-      String myGroupId =
-          inviteCode.isEmpty ? userCredential.user!.uid : inviteCode;
+      String myGroupId = inviteCode.isEmpty
+          ? FirebaseFirestore.instance.collection('groups').doc().id // 自動生成！
+          : inviteCode;
 
       // Firestoreのusersコレクションに保存。ここでgroupIdを持たせることでチャット等の共有
       await FirebaseFirestore.instance

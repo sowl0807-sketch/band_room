@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class SetlistPage extends StatefulWidget {
   const SetlistPage({super.key});
@@ -14,8 +15,10 @@ class SetlistPage extends StatefulWidget {
 }
 
 class _SetlistPageState extends State<SetlistPage> {
-  bool _isLoading = false;
+  // 💡 エラーを防ぐ最重要フラグ（最初は「読み込み中」にして画面エラーを防ぐ）
+  bool _isLoading = true;
   String _loadingMessage = "";
+  String? _groupId;
 
   final AudioPlayer _audioPlayer = AudioPlayer();
   String? _currentlyPlayingUrl;
@@ -28,36 +31,68 @@ class _SetlistPageState extends State<SetlistPage> {
   void initState() {
     super.initState();
     _setupAudioPlayerListeners();
+    _loadUserGroupId(); // 画面が開いたらすぐグループIDを取りに行く
   }
 
-  /// AudioPlayerのイベントリスナーを設定
+  /// ログインユーザーの所属グループID（招待コード）をFirestoreから取得する処理
+  Future<void> _loadUserGroupId() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final userDoc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+
+        if (userDoc.exists && mounted) {
+          setState(() {
+            // 💡 修正：Firestoreに値があればそれを使い、なければ自分のUIDをIDにする
+            _groupId = userDoc.data()?['groupId'] as String? ?? user.uid;
+            _isLoading = false;
+          });
+          return;
+        }
+      }
+
+      // データがない場合も自分のUIDをIDにする
+      if (mounted) {
+        setState(() {
+          _groupId = user?.uid;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("グループIDの取得エラー: $e");
+      if (mounted) {
+        setState(() {
+          _groupId = FirebaseAuth.instance.currentUser?.uid;
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   void _setupAudioPlayerListeners() {
     _audioPlayer.onPlayerComplete.listen((event) {
-      if (mounted) {
-        _handlePlaybackCompletion();
-      }
+      if (mounted) _handlePlaybackCompletion();
     });
   }
 
-  /// 連続再生のロジック。現在の曲のインデックスを探して、次の曲があれば再生する処理(非同期処理の連続で苦労した部分)
   void _handlePlaybackCompletion() {
     if (_isContinuousPlayEnabled && _currentlyPlayingUrl != null) {
       int currentIndex = _currentPlaylistUrls.indexOf(_currentlyPlayingUrl!);
-
       if (currentIndex >= 0 && currentIndex < _currentPlaylistUrls.length - 1) {
         String nextUrl = _currentPlaylistUrls[currentIndex + 1];
         _playAudio(nextUrl);
         return;
       }
     }
-
     setState(() {
       _isPlaying = false;
       _currentlyPlayingUrl = null;
     });
   }
 
-  /// 指定したURLの音源を再生する
   Future<void> _playAudio(String url) async {
     await _audioPlayer.play(UrlSource(url));
     setState(() {
@@ -72,7 +107,6 @@ class _SetlistPageState extends State<SetlistPage> {
     super.dispose();
   }
 
-  /// Durationを mm:ss (または hh:mm:ss) 形式の文字列に変換
   String _formatDuration(Duration? duration) {
     if (duration == null) return "00:00";
     String twoDigits(int n) => n.toString().padLeft(2, "0");
@@ -84,8 +118,10 @@ class _SetlistPageState extends State<SetlistPage> {
     return "$twoDigitMinutes:$twoDigitSeconds";
   }
 
-  /// 音声ファイルのアップロード処理。FilePickerで取得 -> 長さ解析 -> Storageへアップロード -> Firestoreへデータ保存という流れ。
+  /// 音声ファイルのアップロード処理（グループごとに保存場所を分離）
   Future<void> _pickAudioFile() async {
+    if (_groupId == null) return;
+
     setState(() {
       _isLoading = true;
       _loadingMessage = "ファイルを選択中...";
@@ -111,10 +147,11 @@ class _SetlistPageState extends State<SetlistPage> {
 
         songDuration ??= const Duration(seconds: 0);
 
-        setState(() => _loadingMessage = "クラウドにアップロード中...\n（グループ全員に共有されます）");
+        setState(() => _loadingMessage = "アップロード中...");
 
+        // 💡 グループごとの専用フォルダに保存
         final storageRef = FirebaseStorage.instance.ref().child(
-            'setlists/${DateTime.now().millisecondsSinceEpoch}_$fileName');
+            'groups/$_groupId/setlists/${DateTime.now().millisecondsSinceEpoch}_$fileName');
 
         UploadTask uploadTask = storageRef.putData(
           fileBytes,
@@ -124,9 +161,14 @@ class _SetlistPageState extends State<SetlistPage> {
         TaskSnapshot snapshot = await uploadTask;
         String downloadUrl = await snapshot.ref.getDownloadURL();
 
-        setState(() => _loadingMessage = "セットリストに登録中...");
+        setState(() => _loadingMessage = "登録中...");
 
-        await FirebaseFirestore.instance.collection('setlists').add({
+        // 💡 グループごとのFirestoreにデータ保存
+        await FirebaseFirestore.instance
+            .collection('groups')
+            .doc(_groupId)
+            .collection('setlists')
+            .add({
           'title': fileName,
           'url': downloadUrl,
           'duration_seconds': songDuration.inSeconds,
@@ -135,16 +177,14 @@ class _SetlistPageState extends State<SetlistPage> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('「$fileName」を共有セットリストに追加しました！')),
+            SnackBar(content: Text('「$fileName」を追加しました！')),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content:
-                  Text('エラーが発生しました: $e\nFirebaseコンソールのStorage設定を確認してください。')),
+          SnackBar(content: Text('エラーが発生しました: $e')),
         );
       }
     } finally {
@@ -157,7 +197,6 @@ class _SetlistPageState extends State<SetlistPage> {
     }
   }
 
-  /// 再生・一時停止のトグル処理
   Future<void> _togglePlay(String url) async {
     if (_currentlyPlayingUrl == url && _isPlaying) {
       await _audioPlayer.pause();
@@ -167,15 +206,15 @@ class _SetlistPageState extends State<SetlistPage> {
     }
   }
 
-  /// 曲順を上に移動 (前のドキュメントと created_at を入れ替える)
+  /// 曲順を上に移動
   Future<void> _moveUp(int index, List<QueryDocumentSnapshot> docs) async {
     if (index <= 0) return;
     try {
       final currentDoc = docs[index];
       final prevDoc = docs[index - 1];
 
-      final currentData = currentDoc.data() as Map<String, dynamic>;
-      final prevData = prevDoc.data() as Map<String, dynamic>;
+      final currentData = currentDoc.data() as Map<String, dynamic>? ?? {};
+      final prevData = prevDoc.data() as Map<String, dynamic>? ?? {};
 
       final currentCreatedAt = currentData['created_at'];
       final prevCreatedAt = prevData['created_at'];
@@ -187,23 +226,19 @@ class _SetlistPageState extends State<SetlistPage> {
       batch.update(prevDoc.reference, {'created_at': currentCreatedAt});
       await batch.commit();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('並び替えに失敗しました: $e')),
-        );
-      }
+      debugPrint('並び替えエラー: $e');
     }
   }
 
-  /// 曲順を下に移動 (次のドキュメントと created_at を入れ替える)
+  /// 曲順を下に移動
   Future<void> _moveDown(int index, List<QueryDocumentSnapshot> docs) async {
     if (index >= docs.length - 1) return;
     try {
       final currentDoc = docs[index];
       final nextDoc = docs[index + 1];
 
-      final currentData = currentDoc.data() as Map<String, dynamic>;
-      final nextData = nextDoc.data() as Map<String, dynamic>;
+      final currentData = currentDoc.data() as Map<String, dynamic>? ?? {};
+      final nextData = nextDoc.data() as Map<String, dynamic>? ?? {};
 
       final currentCreatedAt = currentData['created_at'];
       final nextCreatedAt = nextData['created_at'];
@@ -215,16 +250,13 @@ class _SetlistPageState extends State<SetlistPage> {
       batch.update(nextDoc.reference, {'created_at': currentCreatedAt});
       await batch.commit();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('並び替えに失敗しました: $e')),
-        );
-      }
+      debugPrint('並び替えエラー: $e');
     }
   }
 
-  /// 指定した曲の削除処理
+  /// 曲の削除（グループごとのパスから削除）
   Future<void> _deleteSong(String docId, String url) async {
+    if (_groupId == null) return;
     try {
       if (_currentlyPlayingUrl == url) {
         await _audioPlayer.stop();
@@ -233,7 +265,10 @@ class _SetlistPageState extends State<SetlistPage> {
           _currentlyPlayingUrl = null;
         });
       }
+
       await FirebaseFirestore.instance
+          .collection('groups')
+          .doc(_groupId)
           .collection('setlists')
           .doc(docId)
           .delete();
@@ -247,11 +282,35 @@ class _SetlistPageState extends State<SetlistPage> {
 
   @override
   Widget build(BuildContext context) {
+    // 💡 画面エラーを防ぐ鉄壁のガード：ID取得中やアップロード中は「絶対に」リストを描画しない
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(
+                  _loadingMessage.isNotEmpty
+                      ? _loadingMessage
+                      : "グループ情報を読み込み中...",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                      color: Colors.grey, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 読み込みが完了したら、本来の画面を表示
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
-        title:
-            const Text('セットリスト', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const SizedBox.shrink(),
+            //style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         elevation: 0,
@@ -261,10 +320,8 @@ class _SetlistPageState extends State<SetlistPage> {
             child: InkWell(
               borderRadius: BorderRadius.circular(20),
               onTap: () async {
-                setState(() {
-                  _isContinuousPlayEnabled = !_isContinuousPlayEnabled;
-                });
-
+                setState(
+                    () => _isContinuousPlayEnabled = !_isContinuousPlayEnabled);
                 if (_isContinuousPlayEnabled &&
                     _currentPlaylistUrls.isNotEmpty) {
                   if (!_isPlaying || _currentlyPlayingUrl == null) {
@@ -291,35 +348,25 @@ class _SetlistPageState extends State<SetlistPage> {
             ),
           ),
           const SizedBox(width: 12),
-          _isLoading
-              ? const SizedBox.shrink()
-              : IconButton(
-                  icon: const Icon(Icons.add_circle_outline,
-                      size: 28, color: Colors.blue),
-                  onPressed: _pickAudioFile,
-                ),
+          IconButton(
+            icon: const Icon(Icons.add_circle_outline,
+                size: 28, color: Colors.blue),
+            onPressed: _pickAudioFile,
+          ),
           const SizedBox(width: 8),
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
+        // 💡 グループ専用のデータのみを監視
         stream: FirebaseFirestore.instance
+            .collection('groups')
+            .doc(_groupId)
             .collection('setlists')
             .orderBy('created_at', descending: false)
             .snapshots(),
         builder: (context, snapshot) {
-          if (_isLoading) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text(_loadingMessage,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.grey)),
-                ],
-              ),
-            );
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
           }
 
           if (snapshot.hasError) {
@@ -337,15 +384,14 @@ class _SetlistPageState extends State<SetlistPage> {
           }
 
           final docs = snapshot.data!.docs;
-
           _currentPlaylistUrls = docs.map((doc) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data() as Map<String, dynamic>? ?? {};
             return data['url'] as String? ?? '';
           }).toList();
 
           int totalSeconds = 0;
           for (var doc in docs) {
-            final data = doc.data() as Map<String, dynamic>;
+            final data = doc.data() as Map<String, dynamic>? ?? {};
             totalSeconds += (data['duration_seconds'] as int?) ?? 0;
           }
 
@@ -356,7 +402,8 @@ class _SetlistPageState extends State<SetlistPage> {
                   itemCount: docs.length,
                   itemBuilder: (context, index) {
                     final doc = docs[index];
-                    final data = doc.data() as Map<String, dynamic>;
+                    // 💡 ここで型を厳密に指定し、黄色波線の警告を完全に消滅させています
+                    final data = doc.data() as Map<String, dynamic>? ?? {};
 
                     String title = data['title'] ?? '不明な曲';
                     String url = data['url'] ?? '';
@@ -405,7 +452,6 @@ class _SetlistPageState extends State<SetlistPage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        // Layout Overflow の修正箇所
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
