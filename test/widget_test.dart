@@ -1,30 +1,17 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:band_room/main.dart';
+import 'package:band_room/pages/login_page.dart'; // ※ご自身のプロジェクトパスに合わせて調整してください
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('ログイン画面にメールとパスワードの入力欄が表示されているかテスト', (WidgetTester tester) async {
+    // ログインページをテスト用にビルド（MaterialAppで囲むのがコツです）
+    await tester.pumpWidget(const MaterialApp(home: LoginPage()));
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    // 1. ラベル名で入力欄が見つかるか確認
+    expect(find.text('メールアドレス'), findsOneWidget);
+    expect(find.text('パスワード'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
-
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // 2. ログインボタンが表示されているか確認
+    expect(find.widgetWithText(ElevatedButton, 'ログイン'), findsOneWidget);
   });
 }
