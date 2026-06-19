@@ -56,33 +56,39 @@
    git clone [このリポジトリのURL]
    cd [プロジェクトフォルダ名]
 3. **パッケージのインストール**
-   Bash
-
+  ```bash
     flutter pub get
+  ```
 4. **Firebaseの設定（※重要）**
    本プロジェクトはFirebaseと連携しています。ローカルで実行する場合は、ご自身のFirebaseプロジェクトを作成し、firebase_options.dart を生成して配置する必要があります。
 
 5. **アプリの実行**
-   Bash
-
+   ```bash
    flutter run
-6. **インフラ設定について（Firebase Storage CORS設定）**
-   Webブラウザ等でクラウド上の音源を再生する際、CORS（Cross-Origin Resource Sharing）制約によりエラーが発生する場合があります。
+   ```
+6. **インフラ設定について（Firebase Storage CORS設定）** Webブラウザ等でクラウド上の音源を再生する際、CORS（Cross-Origin Resource Sharing）制約によりエラーが発生する場合があります。
    Firebase Storageに対して、以下の設定（cors.json）を適用してください。
 
    cors.json
-
-   JSON
-
+   ```json
    [
      {
-       "origin": ["*"],
-       "method": ["GET", "HEAD"],
-       "responseHeader": ["Content-Type"],
+       "origin": [
+         "*"
+       ],
+       "method": [
+         "GET",
+         "HEAD"
+       ],
+       "responseHeader": [
+         "Content-Type"
+       ],
        "maxAgeSeconds": 3600
      }
    ]
-7. **適用コマンド（Google Cloud CLIを使用）**
-   Bash
+   ```
 
-   gsutil cors set cors.json gs://[あなたのFirebase Storageのバケット名]
+7. **適用コマンド（Google Cloud CLIを使用）**
+   ```bash
+   gsutil cors set cors.json gs://<あなたのプロジェクトID>.appspot.com
+   ```
