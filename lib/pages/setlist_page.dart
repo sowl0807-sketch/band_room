@@ -15,7 +15,7 @@ class SetlistPage extends StatefulWidget {
 }
 
 class _SetlistPageState extends State<SetlistPage> {
-  // 💡 エラーを防ぐ最重要フラグ（最初は「読み込み中」にして画面エラーを防ぐ）
+  // エラーを防ぐ最重要フラグ（最初は「読み込み中」にして画面エラーを防ぐ）
   bool _isLoading = true;
   String _loadingMessage = "";
   String? _groupId;
@@ -46,7 +46,7 @@ class _SetlistPageState extends State<SetlistPage> {
 
         if (userDoc.exists && mounted) {
           setState(() {
-            // 💡 修正：Firestoreに値があればそれを使い、なければ自分のUIDをIDにする
+            // Firestoreに値があればそれを使い、なければ自分のUIDをIDにする
             _groupId = userDoc.data()?['groupId'] as String? ?? user.uid;
             _isLoading = false;
           });
@@ -149,7 +149,7 @@ class _SetlistPageState extends State<SetlistPage> {
 
         setState(() => _loadingMessage = "アップロード中...");
 
-        // 💡 グループごとの専用フォルダに保存
+        // グループごとの専用フォルダに保存
         final storageRef = FirebaseStorage.instance.ref().child(
             'groups/$_groupId/setlists/${DateTime.now().millisecondsSinceEpoch}_$fileName');
 
@@ -163,7 +163,7 @@ class _SetlistPageState extends State<SetlistPage> {
 
         setState(() => _loadingMessage = "登録中...");
 
-        // 💡 グループごとのFirestoreにデータ保存
+        // グループごとのFirestoreにデータ保存
         await FirebaseFirestore.instance
             .collection('groups')
             .doc(_groupId)
@@ -282,7 +282,7 @@ class _SetlistPageState extends State<SetlistPage> {
 
   @override
   Widget build(BuildContext context) {
-    // 💡 画面エラーを防ぐ鉄壁のガード：ID取得中やアップロード中は「絶対に」リストを描画しない
+    // 画面エラーを防ぐ：ID取得中やアップロード中は「絶対に」リストを描画しない
     if (_isLoading) {
       return Scaffold(
         backgroundColor: Colors.white,
@@ -357,7 +357,7 @@ class _SetlistPageState extends State<SetlistPage> {
         ],
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // 💡 グループ専用のデータのみを監視
+        // グループ専用のデータのみを監視
         stream: FirebaseFirestore.instance
             .collection('groups')
             .doc(_groupId)
